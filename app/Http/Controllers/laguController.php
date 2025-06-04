@@ -42,43 +42,44 @@ class laguController extends Controller
         return view('cari', ['lagus' => $dataLagu]);
     }
     
-    public function search(Request $request)
-    {
-        $query = $request->input('query');
-        $laguData = session('lagu_data', []);
+    public function search(Request $request) {
+        $query = $request->input('query'); //get query dari form
+        $laguData = session('lagu_data', []); //get data lagu yg disimpan
 
+        //jika tidak ada lagu yg tersimpan
         if (empty($laguData)) {
             return redirect('/upload')->with('error', 'Upload dulu file PDF berisi lagu.');
         }
 
+        //forward req ke function tfidfSearch()
         $results = [];
         if ($query) {
             $results = $this->tfidfSearch($query, $laguData);
         }
 
+        //return hasil search beserta query pencarian
         return view('cari', [
             'results' => $results,
             'query' => $query,
         ]);
     }
 
-     private function tfidfSearch($query, $laguData)
-    {
-        // Tokenisasi helper: ubah kalimat jadi array kata kecil
-        $tokenize = function($text) {
-            $text = strtolower($text);
-            $text = preg_replace('/[^a-z0-9\s]/', '', $text);
-            return preg_split('/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+    private function tfidfSearch($query, $laguData) {
+        $tokenize = function($text) { //tokenisasi
+            $text = strtolower($text); //lowercase 
+            $text = preg_replace('/[^a-z0-9\s]/', '', $text); //hapus karakter selain huruf
+            return preg_split('/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY); //split string menjadi array berdasarkan spasi
         };
 
-        // 1. Tokenize semua dokumen dan query
+        //tokenisasi lagu dan disimpan di arrat docsToken
         $docsTokens = [];
         foreach ($laguData as $lagu) {
             $docsTokens[] = $tokenize($lagu['lirik']);
         }
-        $queryTokens = $tokenize($query);
+        $queryTokens = $tokenize($query); //tokenisasi query pencarian
 
-        // 2. Buat vocabulary unik dari semua dokumen + query
+        //crate daftar kata unik
         $vocab = [];
         foreach ($docsTokens as $tokens) {
             $vocab = array_merge($vocab, $tokens);
@@ -87,9 +88,9 @@ class laguController extends Controller
         sort($vocab);
         $vocabIndex = array_flip($vocab);
 
-        $N = count($docsTokens); // jumlah dokumen
+        $N = count($docsTokens); //jumlah dokumen
 
-        // 3. Hitung DF (Document Frequency) tiap term
+        //hitung document freq tiap term
         $df = array_fill(0, count($vocab), 0);
         foreach ($vocab as $termIndex => $term) {
             foreach ($docsTokens as $tokens) {
@@ -99,7 +100,7 @@ class laguController extends Controller
             }
         }
 
-        // 4. Fungsi TF (Term Frequency)
+        //term freq
         $tf = function($term, $tokens) {
             $count = 0;
             foreach ($tokens as $tok) {
@@ -108,7 +109,7 @@ class laguController extends Controller
             return $count / count($tokens);
         };
 
-        // 5. Hitung vektor TF-IDF untuk query
+        //hitung vektor TF-IDF untuk query pencarian
         $queryVec = [];
         foreach ($vocab as $termIndex => $term) {
             $tfValue = $tf($term, $queryTokens);
@@ -116,7 +117,7 @@ class laguController extends Controller
             $queryVec[$term] = $tfValue * $idfValue;
         }
 
-        // 6. Hitung vektor TF-IDF tiap dokumen dan cosine similarity dengan query
+        //hitung vektor TF-IDF tiap dokumen dan cosine similarity dengan query
         $scores = [];
         foreach ($docsTokens as $docIndex => $tokens) {
             $docVec = [];
@@ -126,7 +127,7 @@ class laguController extends Controller
                 $docVec[$term] = $tfValue * $idfValue;
             }
 
-            // Hitung cosine similarity
+            //hitung cosine similarity
             $dot = 0;
             $normDoc = 0;
             $normQuery = 0;
@@ -142,10 +143,10 @@ class laguController extends Controller
             $scores[$docIndex] = $cosSim;
         }
 
-        // 7. Urutkan dokumen berdasar similarity tertinggi
+        //sort dokumen berdasar similarity tertinggi
         arsort($scores);
 
-        // 8. Return array lagu dengan skor > 0, urutkan dari tinggi ke rendah
+        //return array lagu dengan skor > 0
         $results = [];
         foreach ($scores as $docIndex => $score) {
             if ($score > 0) {
